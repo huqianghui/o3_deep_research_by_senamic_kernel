@@ -9,7 +9,7 @@ from plugins.searchPlugin import SearchPlugin
 from utils.prompts import (CREDIBILITY_CRITIC_PROMPT, DATA_FEEDER_PROMPT,
                       REFLECTION_CRITIC_PROMPT, REPORT_WRITER_PROMPT,
                       SUMMARIZER_PROMPT, TRANSLATOR_PROMPT)
-from utils import get_azure_openai_service,ModelAndDeploymentName
+from utils.util import get_azure_openai_service,ModelAndDeploymentName
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ def data_feeder() -> ChatCompletionAgent:
         name="DataFeederAgent",
         description="Performs comprehensive web search using Tavily API and returns structured JSON results.",
         instructions=DATA_FEEDER_PROMPT,
-        service=get_azure_openai_service(ModelAndDeploymentName.gpt41_mini),
+        service=get_azure_openai_service(ModelAndDeploymentName.GPT_41_MINI),
         plugins=[SearchPlugin()]
     )
 
@@ -33,7 +33,7 @@ def credibility_critic() -> ChatCompletionAgent:
         name="CredibilityCriticAgent",
         description="Analyzes credibility and coverage of search results using advanced LLM analysis.",
         instructions=CREDIBILITY_CRITIC_PROMPT,
-        service=get_azure_openai_service(ModelAndDeploymentName.gpt41_mini),
+        service=get_azure_openai_service(ModelAndDeploymentName.GPT_41_MINI),
         plugins=[SearchPlugin()]
     )
 
@@ -45,7 +45,7 @@ def summarizer() -> ChatCompletionAgent:
         name="SummarizerAgent",
         description="Synthesizes large volumes of search results into comprehensive, organized summaries.",
         instructions=SUMMARIZER_PROMPT,
-        service=get_azure_openai_service(ModelAndDeploymentName.gpt41_mini)
+        service=get_azure_openai_service(ModelAndDeploymentName.GPT_41_MINI)
     )
 
 
@@ -56,7 +56,7 @@ def report_writer() -> ChatCompletionAgent:
         name="ReportWriterAgent",
         description="Creates structured markdown reports with proper citations, hyperlinks, and visual content.",
         instructions=REPORT_WRITER_PROMPT,
-        service=get_azure_openai_service(ModelAndDeploymentName.o3)
+        service=get_azure_openai_service(ModelAndDeploymentName.O4_MINI)
     )
 
 
@@ -67,7 +67,7 @@ def translator() -> ChatCompletionAgent:
         name="TranslatorAgent",
         description="Provides natural English-Chinese translation while preserving technical accuracy and formatting.",
         instructions=TRANSLATOR_PROMPT,
-        service=get_azure_openai_service(ModelAndDeploymentName.gpt41)
+        service=get_azure_openai_service(ModelAndDeploymentName.GPT_41)
     )
 
 
@@ -78,5 +78,5 @@ def reflection_critic() -> ChatCompletionAgent:
         name="ReflectionCriticAgent",
         description="Evaluates report quality for coverage, coherence, citations and provides improvement feedback.",
         instructions=REFLECTION_CRITIC_PROMPT,
-        service=get_azure_openai_service(ModelAndDeploymentName.o3)
+        service=get_azure_openai_service(ModelAndDeploymentName.O4_MINI)
     )

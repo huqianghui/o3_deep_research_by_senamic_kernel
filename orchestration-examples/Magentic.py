@@ -1,10 +1,21 @@
-# Copyright (c) Microsoft. All rights reserved.
-
+"""
+Main entry point for Deep Research Agent.
+"""
 import asyncio
 import logging
+import sys
+from typing import Optional
 import os
 
-from backoff import runtime
+from semantic_kernel.agents import (MagenticOrchestration,
+                                    StandardMagenticManager)
+from semantic_kernel.agents.runtime import InProcessRuntime
+from semantic_kernel.utils.logging import setup_logging
+
+
+# Add parent directory to path to find plugins
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from dotenv import load_dotenv
 from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
@@ -12,10 +23,9 @@ from opentelemetry.semconv.resource import ResourceAttributes
 
 from semantic_kernel.contents import  ChatMessageContent
 
-from semantic_kernel.agents.orchestration.group_chat import (
-    GroupChatOrchestration, 
-    RoundRobinGroupChatManager,
-)
+from agents.agent_factory import (credibility_critic, data_feeder,
+                               reflection_critic, report_writer, summarizer,
+                               translator)
 
 from plugins.searchPlugin import SearchPlugin
 
@@ -23,6 +33,7 @@ from semantic_kernel.agents.runtime import InProcessRuntime
 from semantic_kernel.contents.chat_message_content import ChatMessageContent
 from agents.CustomGroupChatManager import CustomRoundRobinGroupChatManager
 from utils.util import agent_response_callback,streaming_agent_response_callback, get_azure_openai_service,ModelAndDeploymentName,human_response_function
+
 
 ## reference: 
 # https://github.com/microsoft/semantic-kernel/tree/main/python/samples/getting_started_with_agents/multi_agent_orchestration
@@ -112,40 +123,6 @@ def set_up_logging():
 from semantic_kernel.agents import Agent, ChatCompletionAgent
 from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 
-searchPlugin = SearchPlugin()
-
-def get_agents() -> list[Agent]:
-    researcher = ChatCompletionAgent(
-        name="Researcher",
-        description="A researcher agent.",
-        plugins=[searchPlugin],
-        instructions=(
-            '''You are an excellent researcher and content writer. You can do deep research, collect data in the internet by tavily_search  and create new content and edit contents based on the feedback.
-              And you always output the entire content in the response, not just the changes or diff.
-              Do not just respond user input. 
-              Always output the entire content in the response in any case.
-            '''
-        ),
-        service=get_azure_openai_service(ModelAndDeploymentName.GPT_41_MINI),
-    )
-    reviewer = ChatCompletionAgent(
-        name="Reviewer",
-        description="A content reviewer.",
-        instructions=(
-            "You are an excellent content reviewer. You review the content and provide feedback to the writer."
-        ),
-        service=get_azure_openai_service(ModelAndDeploymentName.GPT_41_MINI),
-    )
-    return [researcher, reviewer]
-
-from semantic_kernel.contents import ChatMessageContent
-
-
-from semantic_kernel.agents import GroupChatOrchestration, RoundRobinGroupChatManager
-
-
-from semantic_kernel.agents.runtime import InProcessRuntime
-
 
 async def main():
     if AZURE_APP_INSIGHTS_CONNECTION_STRING:
@@ -154,19 +131,25 @@ async def main():
 
     tracer = trace.get_tracer(__name__)
     with tracer.start_as_current_span("azure_ai_agent_deep_research_by_groupChat_human_in_loop-main"):
-        agents = get_agents()
-        group_chat_orchestration = GroupChatOrchestration(
-            members=agents,
-            manager=CustomRoundRobinGroupChatManager(max_rounds=5,human_response_function=human_response_function),  # Odd number so writer gets the last word
-            agent_response_callback=agent_response_callback
-        )
+        members = [     data_feeder(),
+                        credibility_critic(),
+                        summarizer(),
+                        report_writer(),
+                        translator(),
+                        reflection_critic()]
+
+        magentic_orchestration = MagenticOrchestration(
+        members=members,
+        manager=StandardMagenticManager(chat_completion_service=get_azure_openai_service()),
+        agent_response_callback=agent_response_callback)
 
         runtime = InProcessRuntime()
         runtime.start()
 
-        orchestration_result = await group_chat_orchestration.invoke(
+        # 3. Invoke the orchestration with a task and the runtime
+        orchestration_result = await magentic_orchestration.invoke(
             task=TASK,
-            runtime=runtime
+            runtime=runtime,
         )
 
         value = await orchestration_result.get()

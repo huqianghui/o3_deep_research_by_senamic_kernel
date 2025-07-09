@@ -4,7 +4,7 @@ import sys
 
 from semantic_kernel.agents.orchestration.group_chat import BooleanResult, RoundRobinGroupChatManager
 from semantic_kernel.contents import  ChatHistory
-from typing  import override
+from typing_extensions import override
 
 
 class CustomRoundRobinGroupChatManager(RoundRobinGroupChatManager):
