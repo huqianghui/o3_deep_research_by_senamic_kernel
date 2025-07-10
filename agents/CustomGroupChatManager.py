@@ -22,7 +22,7 @@ class CustomRoundRobinGroupChatManager(RoundRobinGroupChatManager):
                 reason="No agents have spoken yet.",
             )
         last_message = chat_history.messages[-1]
-        if last_message.name == "Reviewer":
+        if last_message.name and "review" in last_message.name.lower():
             return BooleanResult(
                 result=True,
                 reason="User input is needed after the reviewer's message.",

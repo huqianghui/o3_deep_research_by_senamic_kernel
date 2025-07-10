@@ -11,13 +11,26 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.semconv.resource import ResourceAttributes
 
 from semantic_kernel.contents import  ChatMessageContent
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
+from semantic_kernel.agents import AgentGroupChat, AzureAIAgent, AzureAIAgentSettings
+
+
 
 from semantic_kernel.agents.orchestration.group_chat import (
     GroupChatOrchestration, 
     RoundRobinGroupChatManager,
 )
 
+import os, time
+from typing import Optional
+from azure.ai.projects.aio import AIProjectClient
+from azure.identity import DefaultAzureCredential
+from azure.ai.agents import AgentsClient
+from azure.ai.agents.models import DeepResearchTool, MessageRole, ThreadMessage
+
 from plugins.searchPlugin import SearchPlugin
+from semantic_kernel.agents import Agent, ChatCompletionAgent
+
 
 from semantic_kernel.agents.runtime import InProcessRuntime
 from semantic_kernel.contents.chat_message_content import ChatMessageContent
@@ -25,7 +38,7 @@ from agents.CustomGroupChatManager import CustomRoundRobinGroupChatManager
 from utils.util import agent_response_callback,streaming_agent_response_callback, get_azure_openai_service,ModelAndDeploymentName,human_response_function
 
 ## reference: 
-# https://github.com/microsoft/semantic-kernel/tree/main/python/samples/getting_started_with_agents/multi_agent_orchestration
+# https://github.com/microsoft/semantic-kernel/blob/main/python/samples/getting_started_with_agents/azure_ai_agent/step3_azure_ai_agent_group_chat.py
 ##
 
 
@@ -85,7 +98,6 @@ def set_up_tracing():
     # Sets the global default tracer provider
     set_tracer_provider(tracer_provider)
 
-
 def set_up_logging():
     from azure.monitor.opentelemetry.exporter import AzureMonitorLogExporter
     from opentelemetry._logs import set_logger_provider
@@ -109,58 +121,78 @@ def set_up_logging():
     logger.setLevel(logging.INFO)
 
 
-from semantic_kernel.agents import Agent, ChatCompletionAgent
-from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
-
-searchPlugin = SearchPlugin()
-
-def get_agents() -> list[Agent]:
-    researcher = ChatCompletionAgent(
-        name="Researcher",
-        description="A researcher agent.",
-        plugins=[searchPlugin],
-        instructions=(
-            '''You are an excellent researcher and content writer. You can do deep research, collect data in the internet by tavily_search  and create new content and edit contents based on the feedback.
-              And you always output the entire content in the response, not just the changes or diff.
-              Do not just respond user input. 
-              Always output the entire content in the response in any case.
-            '''
-        ),
-        service=get_azure_openai_service(ModelAndDeploymentName.GPT_41_MINI),
-    )
-    reviewer = ChatCompletionAgent(
-        name="Reviewer",
-        description="A content reviewer.",
-        instructions=(
-            "You are an excellent content reviewer. You review the content and provide feedback to the writer."
-        ),
-        service=get_azure_openai_service(ModelAndDeploymentName.GPT_41_MINI),
-    )
-    return [researcher, reviewer]
-
-from semantic_kernel.contents import ChatMessageContent
-
-
-from semantic_kernel.agents import GroupChatOrchestration, RoundRobinGroupChatManager
-
-
-from semantic_kernel.agents.runtime import InProcessRuntime
-
-
 async def main():
     if AZURE_APP_INSIGHTS_CONNECTION_STRING:
         set_up_tracing()
         set_up_logging()
 
     tracer = trace.get_tracer(__name__)
+
     with tracer.start_as_current_span("azure_ai_agent_deep_research_by_groupChat_human_in_loop-main"):
-        agents = get_agents()
-        group_chat_orchestration = GroupChatOrchestration(
-            members=agents,
-            manager=CustomRoundRobinGroupChatManager(max_rounds=5,human_response_function=human_response_function),  # Odd number so writer gets the last word
-            agent_response_callback=agent_response_callback,
-            human_response_function=human_response_function,
+
+        # Set up Azure credential and client
+        credential = DefaultAzureCredential(
+            exclude_workload_identity_credential=True,
+            exclude_environment_credential=True,
+            exclude_managed_identity_credential=True,
+            exclude_shared_token_cache_credential=True,
+            exclude_visual_studio_code_credential=True,
+            exclude_developer_cli_credential=True,
+            exclude_cli_credential=False,
+            exclude_interactive_browser_credential=True,
+            exclude_powershell_credential=True
         )
+
+
+
+        # connect to Azure AI Project    
+        project_client = AIProjectClient(
+            endpoint=os.environ["DEEP_RESEARCH_PROJECT_CONNECTION_STRING"],
+            credential=credential,
+        )
+
+
+        # get the Bing Connection ID
+        conn_id = (await project_client.connections.get(name=os.environ["DEEP_RESEARCH_BING_RESOURCE_NAME"])).id
+
+
+        # Initialize a Deep Research tool with Bing Connection ID and Deep Research model deployment name
+        deep_research_tool = DeepResearchTool(
+            bing_grounding_connection_id=conn_id,
+            deep_research_model=os.environ["DEEP_RESEARCH_MODEL_DEPLOYMENT_NAME"],
+        )
+
+        # define the deep research agent
+        deep_research_demo_agent_def = await project_client.agents.create_agent(
+                model=os.environ["DEEP_RESEARCH_CHAT_MODEL_DEPLOYMENT_NAME"],
+                name="deep-research-demo-agent-01",
+                description="A helpful agent that assists in researching scientific & technical topics.",
+                instructions="You are a helpful Agent that assists in researching scientific & technical topics.",
+                tools=deep_research_tool.definitions)
+
+        deep_research_demo_agent = AzureAIAgent(
+                client=project_client,
+                definition=deep_research_demo_agent_def)
+        
+        # define reviewer agent
+        reviewer_agent_definition = await project_client.agents.create_agent(
+                model=os.environ["DEEP_RESEARCH_CHAT_MODEL_DEPLOYMENT_NAME"],
+                name="content-reviewer-agent",
+                description="An agent that reviews content for quality and adherence to guidelines.",
+                instructions='''You are an art director who has opinions about copywriting born of a love for David Ogilvy.
+                                The goal is to determine if the given copy is acceptable to print.
+                                If so, state that it is approved.  Do not use the word "approve" unless you are giving approval.
+                                If not, provide insight on how to refine suggested copy without example.''')
+        
+        reviewer_agent = AzureAIAgent(
+                client=project_client,
+                definition=reviewer_agent_definition)
+        
+        group_chat_orchestration = GroupChatOrchestration(
+                members=[deep_research_demo_agent,reviewer_agent],
+                manager=CustomRoundRobinGroupChatManager(max_rounds=5,human_response_function=human_response_function),
+                agent_response_callback=agent_response_callback
+            )
 
         runtime = InProcessRuntime()
         runtime.start()
@@ -174,6 +206,7 @@ async def main():
         print(f"***** Final Result *****\n{value}")
 
         await runtime.stop_when_idle()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
