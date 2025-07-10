@@ -158,7 +158,8 @@ async def main():
         group_chat_orchestration = GroupChatOrchestration(
             members=agents,
             manager=CustomRoundRobinGroupChatManager(max_rounds=5,human_response_function=human_response_function),  # Odd number so writer gets the last word
-            agent_response_callback=agent_response_callback
+            agent_response_callback=agent_response_callback,
+            human_response_function=human_response_function,
         )
 
         runtime = InProcessRuntime()

@@ -1,16 +1,19 @@
-"""
-magentic orchestration to implement deepresearch.
-"""
 import asyncio
 import logging
-import sys
-from typing import Optional
 import os
+import sys
 
-from semantic_kernel.agents import (MagenticOrchestration,
-                                    StandardMagenticManager)
+from semantic_kernel.agents import Agent, ChatCompletionAgent, HandoffOrchestration, OrchestrationHandoffs
 from semantic_kernel.agents.runtime import InProcessRuntime
-from semantic_kernel.utils.logging import setup_logging
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
+from semantic_kernel.contents import (
+    AuthorRole,
+    ChatMessageContent,
+    FunctionCallContent,
+    FunctionResultContent,
+    StreamingChatMessageContent,
+)
+from semantic_kernel.functions import kernel_function
 
 
 # Add parent directory to path to find plugins
@@ -25,7 +28,7 @@ from semantic_kernel.contents import  ChatMessageContent
 
 from agents.agent_factory import (credibility_critic, data_feeder,
                                reflection_critic, report_writer, summarizer,
-                               translator)
+                               translator, manager)
 
 from plugins.searchPlugin import SearchPlugin
 
@@ -34,11 +37,9 @@ from semantic_kernel.contents.chat_message_content import ChatMessageContent
 from agents.CustomGroupChatManager import CustomRoundRobinGroupChatManager
 from utils.util import agent_response_callback,streaming_agent_response_callback, get_azure_openai_service,ModelAndDeploymentName,human_response_function
 
-
 ## reference: 
-# https://github.com/microsoft/semantic-kernel/blob/main/python/samples/getting_started_with_agents/multi_agent_orchestration/step5_magentic.py
+# https://github.com/microsoft/semantic-kernel/blob/main/python/samples/getting_started_with_agents/multi_agent_orchestration/step4b_handoff_streaming_agent_response_callback.py
 ##
-
 
 TASK = """
 我需要一篇关于MCP的报告。
@@ -131,24 +132,77 @@ async def main():
 
     tracer = trace.get_tracer(__name__)
     with tracer.start_as_current_span("azure_ai_agent_deep_research_by_groupChat_human_in_loop-main"):
-        members = [     data_feeder(),
-                        credibility_critic(),
-                        summarizer(),
-                        report_writer(),
-                        translator(),
-                        reflection_critic()]
 
-        magentic_orchestration = MagenticOrchestration(
-        members=members,
-        manager=StandardMagenticManager(chat_completion_service=get_azure_openai_service()),
-        streaming_agent_response_callback = streaming_agent_response_callback,
-        agent_response_callback=agent_response_callback)
+        managerAgent = manager()
+        dataFeederAgent = data_feeder() 
+        credibilityCriticAgent = credibility_critic()
+        summarizerAgent = summarizer()
+        reportWriterAgent = report_writer()
+        translatorAgent = translator()
+        reflectionCriticAgent = reflection_critic()
+
+        members = [
+            managerAgent,
+            dataFeederAgent,
+            credibilityCriticAgent,
+            summarizerAgent,
+            reportWriterAgent,
+            translatorAgent,
+            reflectionCriticAgent
+        ]
+
+        # Define the handoff relationships between agents
+        handoffs = (
+            OrchestrationHandoffs()
+            .add(
+                source_agent=managerAgent.name,
+                target_agent=dataFeederAgent.name,
+                description="Transfer to this agent to start the research workflow with comprehensive web search",
+            )
+            .add_many(
+                source_agent=dataFeederAgent.name,
+                target_agents={
+                    credibilityCriticAgent.name: "Transfer to this agent to analyze source credibility and coverage after initial web search",
+                    summarizerAgent.name: "Transfer to this agent if search results are too large (>50 items) and need summarization before analysis",
+                },
+            )
+            .add(
+                source_agent=credibilityCriticAgent.name,
+                target_agent=reportWriterAgent.name,
+                description="Transfer to this agent to create structured markdown report after credibility analysis is complete",
+            )
+            .add(
+                source_agent=reportWriterAgent.name,
+                target_agent=reflectionCriticAgent.name,
+                description="Transfer to this agent to evaluate report quality and provide improvement feedback",
+            )
+            .add(
+                source_agent=summarizerAgent.name,
+                target_agent=credibilityCriticAgent.name,
+                description="Transfer to this agent to analyze credibility after large result sets have been summarized",
+            )
+            .add_many(
+                source_agent=reflectionCriticAgent.name,
+                target_agents={
+                    reportWriterAgent.name: "Transfer back to this agent if report quality is below iteration-aware threshold and needs revision. The ReflectionCriticAgent will automatically detect iteration count from conversation history.",
+                    translatorAgent.name: "Transfer to this agent if report quality is approved (≥0.80) and translation is needed",
+                }
+            )
+        )
+
+        handoff_orchestration = HandoffOrchestration(
+            members=members,
+            handoffs=handoffs,
+            streaming_agent_response_callback=streaming_agent_response_callback,
+            agent_response_callback=agent_response_callback,
+            human_response_function=human_response_function
+        )
 
         runtime = InProcessRuntime()
         runtime.start()
 
         # 3. Invoke the orchestration with a task and the runtime
-        orchestration_result = await magentic_orchestration.invoke(
+        orchestration_result = await handoff_orchestration.invoke(
             task=TASK,
             runtime=runtime,
         )

@@ -10,7 +10,7 @@ import os
 from dotenv import load_dotenv
 from enum import Enum
 from semantic_kernel.contents import StreamingChatMessageContent
-from semantic_kernel.contents import AuthorRole, ChatHistory, ChatMessageContent
+from semantic_kernel.contents import AuthorRole, ChatHistory, ChatMessageContent, FunctionCallContent
 
 
 
@@ -18,6 +18,9 @@ from semantic_kernel.contents import AuthorRole, ChatHistory, ChatMessageContent
 logger = logging.getLogger(__name__)
 
 load_dotenv()
+
+# Global variable to track new message state for streaming
+is_new_message = True
 
 
 class ModelAndDeploymentName(Enum):
@@ -37,6 +40,28 @@ def agent_response_callback(msg: ChatMessageContent) -> None:
     """Observer callback – print every agent message to stdout with improved formatting."""
     role = msg.name or "(unknown)"
     content = msg.content or ""
+
+    # If content is empty, try to get content from items (FunctionCallContent)
+    if not content and hasattr(msg, 'items') and msg.items:
+        function_calls = []
+        for item in msg.items:
+            if hasattr(item, 'function_name'):
+                function_calls.append(f"Function: {item.function_name}")
+                
+                # Try to get arguments from different sources
+                arguments = None
+                
+                # Check if metadata is a dict and has 'arguments' key
+                if hasattr(item, 'metadata') and isinstance(item.metadata, dict) and 'arguments' in item.metadata:
+                    arguments = item.metadata['arguments']
+                # Check if item has arguments attribute
+                elif hasattr(item, 'arguments'):
+                    arguments = item.arguments
+                
+                if arguments:
+                    function_calls.append(f"Arguments: {arguments}")
+        if function_calls:
+            content = "\n".join(function_calls)
 
     # Log to file and console
     logger.info(f"Agent Response - {role}: {content[:100]}...")
@@ -61,7 +86,32 @@ def streaming_agent_response_callback(message: StreamingChatMessageContent, is_f
         print(f"🤖 **{message.name}**")
         print(f"{'=' * 60}")
         is_new_message = False
-    print(f"{message.content}", end="", flush=True)
+    
+    content = message.content or ""
+    
+    # If content is empty, try to get content from items (FunctionCallContent)
+    if not content and hasattr(message, 'items') and message.items:
+        function_calls = []
+        for item in message.items:
+            if hasattr(item, 'function_name'):
+                function_calls.append(f"Function: {item.function_name}")
+                
+                # Try to get arguments from different sources
+                arguments = None
+                
+                # Check if metadata is a dict and has 'arguments' key
+                if hasattr(item, 'metadata') and isinstance(item.metadata, dict) and 'arguments' in item.metadata:
+                    arguments = item.metadata['arguments']
+                # Check if item has arguments attribute
+                elif hasattr(item, 'arguments'):
+                    arguments = item.arguments
+                
+                if arguments:
+                    function_calls.append(f"Arguments: {arguments}")
+        if function_calls:
+            content = "\n".join(function_calls)
+    
+    print(f"{content}", end="", flush=True)
     if is_final:
         print(f"{'=' * 60}\n")
         is_new_message = True
@@ -121,7 +171,7 @@ def validate_search_results(results: list) -> bool:
     return True
 
 
-async def human_response_function(chat_histoy: ChatHistory) -> ChatMessageContent:
+async def human_response_function(chat_history: Optional[ChatHistory]=None) -> ChatMessageContent:
     """Function to get user input."""
     user_input = input("User(You)🧑‍💻: ")
     return ChatMessageContent(role=AuthorRole.USER, content=user_input)

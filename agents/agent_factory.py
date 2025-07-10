@@ -8,7 +8,7 @@ from semantic_kernel.agents import ChatCompletionAgent
 from plugins.searchPlugin import SearchPlugin
 from utils.prompts import (CREDIBILITY_CRITIC_PROMPT, DATA_FEEDER_PROMPT,
                       REFLECTION_CRITIC_PROMPT, REPORT_WRITER_PROMPT,
-                      SUMMARIZER_PROMPT, TRANSLATOR_PROMPT)
+                      SUMMARIZER_PROMPT, TRANSLATOR_PROMPT, MANAGER_PROMPT)
 from utils.util import get_azure_openai_service,ModelAndDeploymentName
 
 logger = logging.getLogger(__name__)
@@ -78,5 +78,16 @@ def reflection_critic() -> ChatCompletionAgent:
         name="ReflectionCriticAgent",
         description="Evaluates report quality for coverage, coherence, citations and provides improvement feedback.",
         instructions=REFLECTION_CRITIC_PROMPT,
+        service=get_azure_openai_service(ModelAndDeploymentName.O4_MINI)
+    )
+
+
+def manager() -> ChatCompletionAgent:
+    """Create manager agent for orchestrating the research workflow."""
+    logger.info("Creating ManagerAgent")
+    return ChatCompletionAgent(
+        name="ManagerAgent",
+        description="Orchestrates the research team and controls workflow quality, human interaction decisions.",
+        instructions=MANAGER_PROMPT,
         service=get_azure_openai_service(ModelAndDeploymentName.O4_MINI)
     )
