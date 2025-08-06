@@ -90,7 +90,7 @@ with project_client:
         # update the agent with the Deep Research tool.
         agent = agents_client.create_agent(
             model=os.environ["DEEP_RESEARCH_CHAT_MODEL_DEPLOYMENT_NAME"],
-            name="deep-research-agent-demo01",
+            name="deep-research-agent-az-demo",
             instructions="You are a helpful Agent that assists in researching scientific & technical topics.",
             tools=deep_research_tool.definitions,
         )
@@ -112,7 +112,7 @@ with project_client:
                         2. 报告需要以技术白皮书风格编写
                         3. 希望优先引用的权威来源是Anthropic
                         4. 针对应用案例部分，是偏好开放源代码项目为例
-                        5. 报告预计字数在5000字以内
+                        5. 报告预计字数在1000字以内
                     
                     整理一份详细的技术报告，内容涵盖以下内容：
 
