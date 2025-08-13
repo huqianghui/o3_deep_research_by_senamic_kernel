@@ -35,7 +35,7 @@ from utils.util import agent_response_callback,streaming_agent_response_callback
 
 
 TASK = """
-我需要一篇关于大语言模型的MCP( Model Context Protocol)的报告。
+why 1+1=2?
 """
 
 load_dotenv()
@@ -92,7 +92,7 @@ def get_agents() -> list[Agent]:
     researcher = ChatCompletionAgent(
         name="Researcher",
         description="A researcher agent.",
-        plugins=[searchPlugin],
+        
         instructions=(
             '''You are an excellent researcher and content writer. You can do deep research, collect data in the internet by tavily_search  and create new content and edit contents based on the feedback.
               And you always output the entire content in the response, not just the changes or diff.
@@ -103,10 +103,11 @@ def get_agents() -> list[Agent]:
         service=get_azure_openai_service(ModelAndDeploymentName.O3_DEEP_RESEARCH),
     )
     reviewer = ChatCompletionAgent(
-        name="Reviewer",
+        name="web_content_collect_agent",
+        plugins=[searchPlugin],
         description="A content reviewer.",
         instructions=(
-            "You are an excellent content reviewer. You review the content and provide feedback to the writer."
+            "You are an excellent web content search agent. You can collect all related web content using the search plugin."
         ),
         service=get_azure_openai_service(ModelAndDeploymentName.GPT_41_MINI),
     )
